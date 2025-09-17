@@ -9,7 +9,7 @@ use uefi::{
     Identify,
     boot::SearchType,
     prelude::*,
-    proto::tcg::{AlgorithmId, EventType, PcrIndex, v2::Tcg},
+    proto::tcg::{AlgorithmId, EventType, v2::Tcg},
 };
 
 #[entry]
