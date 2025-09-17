@@ -4,11 +4,12 @@
 use ez_tpm::{GetRandom, PcrRead, uefi::submit_command};
 use hex_slice::AsHex;
 use log::info;
+use sha1::{Digest, Sha1};
 use uefi::{
     Identify,
     boot::SearchType,
     prelude::*,
-    proto::tcg::{AlgorithmId, EventType, v2::Tcg},
+    proto::tcg::{AlgorithmId, EventType, PcrIndex, v2::Tcg},
 };
 
 #[entry]
@@ -81,17 +82,44 @@ fn main() -> Status {
     }
 
     // Replay events
+    // For now we will choose SHA1 to replay
+    let mut expected_sha1_pcr_values = [Default::default(); 24];
+    for event in event_log.iter() {
+        let digest = event
+            .digests()
+            .into_iter()
+            .find_map(|(algorithm, digest)| {
+                if algorithm == AlgorithmId::SHA1 {
+                    Some(digest)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let mut hasher = Sha1::new();
+        let pcr_index = event.pcr_index().0 as usize;
+        hasher.update(&expected_sha1_pcr_values[pcr_index]);
+        hasher.update(digest);
+        expected_sha1_pcr_values[pcr_index] = hasher.finalize();
+    }
 
+    // Do TPM stuff for fun
     let mut command = GetRandom::new();
     let random_bytes = submit_command(&mut tcg, &mut command).unwrap();
     log::debug!("Random bytes: {:x?}", random_bytes);
 
     for i in 0..24 {
         let mut command = PcrRead::new(i);
-        let pcr_value = submit_command(&mut tcg, &mut command)
-            .unwrap()
-            .plain_hex(false);
-        log::debug!("PCR {i} = {pcr_value:x}");
+        let pcr_value = submit_command(&mut tcg, &mut command).unwrap();
+        if pcr_value.iter().all(|byte| *byte == u8::MAX) {
+            log::debug!("PCR {i}: unavailable");
+        } else if pcr_value == expected_sha1_pcr_values[i].as_slice() {
+            let pcr_value = pcr_value.plain_hex(false);
+            log::debug!("PCR {i}: {pcr_value:x} - matches event log");
+        } else {
+            let pcr_value = pcr_value.plain_hex(false);
+            log::debug!("PCR {i}: {pcr_value:x} - does not match event log!");
+        };
     }
 
     loop {

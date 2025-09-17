@@ -9,4 +9,5 @@ ez_tpm = { version = "0.1.0", path = "../ez_tpm", default-features = false, feat
 ] }
 hex-slice = "0.1.4"
 log = "0.4.28"
+sha1 = { version = "0.10.6", default-features = false, features = ["force-soft"] }
 uefi = { version = "0.35.0", features = ["logger", "panic_handler"] }
