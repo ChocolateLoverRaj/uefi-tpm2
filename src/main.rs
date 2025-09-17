@@ -1,8 +1,7 @@
 #![no_main]
 #![no_std]
 
-use core::mem::MaybeUninit;
-
+use ez_tpm::{GetRandom, PcrRead, uefi::submit_command};
 use hex_slice::AsHex;
 use log::info;
 use uefi::{
@@ -10,10 +9,6 @@ use uefi::{
     boot::SearchType,
     prelude::*,
     proto::tcg::{AlgorithmId, EventType, v2::Tcg},
-};
-use zerocopy::{
-    FromBytes, Immutable, IntoBytes, KnownLayout, Unaligned, transmute, transmute_mut,
-    transmute_ref, try_transmute_ref,
 };
 
 #[entry]
@@ -85,126 +80,22 @@ fn main() -> Status {
         }
     }
 
-    const TPM_ST_NO_SESSIONS: [u8; 2] = 0x8001_u16.to_be_bytes();
-    const TPM_CC_GetRandom: [u8; 4] = 0x0000017B_u32.to_be_bytes();
-    const TPM_RC_SUCCESS: u32 = 0x000;
+    // Replay events
 
-    #[repr(C)]
-    #[derive(Debug, Immutable, IntoBytes, Unaligned)]
-    struct CommandHeader {
-        tag: [u8; 2],
-        command_size: [u8; 4],
-        command_code: [u8; 4],
-    }
-
-    #[repr(C)]
-    #[derive(Debug, Immutable, IntoBytes)]
-    struct Command<T> {
-        header: CommandHeader,
-        data: T,
-    }
-
-    #[repr(C)]
-    #[derive(Debug, Immutable, Unaligned, FromBytes)]
-    struct ResponseHeader {
-        tag: [u8; 2],
-        response_size: [u8; 4],
-        response_code: [u8; 4],
-    }
-
-    #[derive(Debug, Immutable, Unaligned, IntoBytes)]
-    #[repr(C)]
-    struct GetRandomCommand {
-        bytes_requested: [u8; 2],
-    }
-
-    #[derive(Debug, Immutable, KnownLayout, FromBytes)]
-    #[repr(C)]
-    struct GetRandomResponse {
-        random_bytes: Tpm2bDigest,
-    }
-
-    #[derive(Debug, Immutable, KnownLayout, FromBytes)]
-    #[repr(C)]
-    struct Tpm2bDigest {
-        size: [u8; 2],
-        bytes: [u8; 0],
-    }
-
-    fn get_random<'a>(
-        tcg: &mut Tcg,
-        bytes: &'a mut [MaybeUninit<u8>],
-    ) -> Result<&'a mut [u8], u32> {
-        let bytes_requested =
-            bytes.len() - size_of::<ResponseHeader>() - size_of::<GetRandomResponse>();
-        let command: [u8; size_of::<Command<GetRandomCommand>>()] = transmute!(Command {
-            header: CommandHeader {
-                tag: TPM_ST_NO_SESSIONS,
-                command_size: (size_of::<Command<GetRandomCommand>>() as u32).to_be_bytes(),
-                command_code: TPM_CC_GetRandom,
-            },
-            data: GetRandomCommand {
-                bytes_requested: (bytes_requested as u16).to_be_bytes(),
-            },
-        });
-        tcg.submit_command(&command, unsafe { bytes.assume_init_mut() });
-        log::debug!("Response bytes: {:?}", unsafe { bytes.assume_init_ref() });
-        let response_header = <&[u8; size_of::<ResponseHeader>()]>::try_from(unsafe {
-            bytes[..size_of::<ResponseHeader>()].assume_init_ref()
-        })
-        .unwrap();
-        let response_header: &ResponseHeader = transmute_ref!(response_header);
-        log::debug!("Response header: {response_header:#?}");
-        let response_code = u32::from_be_bytes(response_header.response_code);
-        if response_code == TPM_RC_SUCCESS {
-            let response: &GetRandomResponse = transmute_ref!(
-                <&[u8; size_of::<GetRandomResponse>()]>::try_from(unsafe {
-                    bytes[size_of::<ResponseHeader>()
-                        ..size_of::<ResponseHeader>() + size_of::<GetRandomResponse>()]
-                        .assume_init_ref()
-                })
-                .unwrap()
-            );
-            let bytes_count = u16::from_be_bytes(response.random_bytes.size);
-            let start = size_of::<ResponseHeader>() + size_of::<GetRandomResponse>();
-            let len = bytes_count as usize;
-            Ok(unsafe { bytes[start..start + len].assume_init_mut() })
-        } else {
-            Err(response_code)
-        }
-    }
-
-    let mut buffer =
-        [MaybeUninit::uninit(); size_of::<ResponseHeader>() + size_of::<GetRandomResponse>() + 4];
-    let random_bytes = get_random(&mut tcg, &mut buffer);
+    let mut command = GetRandom::new();
+    let random_bytes = submit_command(&mut tcg, &mut command).unwrap();
     log::debug!("Random bytes: {:x?}", random_bytes);
 
-    // fn send_command<I: IntoBytes + Immutable, O>(tcg: &mut Tcg, input: I) -> O
-    // where
-    //     [(); size_of::<CommandHeader>() + size_of::<I>()]:,
-    //     [(); size_of::<ResponseHeader>() + size_of::<O>()]:,
-    // {
-    //     let mut command = [0u8; size_of::<CommandHeader>() + size_of::<I>()];
-    //     let command_header = CommandHeader {
-    //         tag: TPM_ST_NO_SESSIONS,
-    //         command_size: ((size_of::<CommandHeader>() + size_of::<I>()) as u32).to_be_bytes(),
-    //         command_code: TPM_CC_GetRandom,
-    //     };
-    //     let command_header: &[u8; size_of::<CommandHeader>()] = transmute_ref!(&command_header);
-    //     (command[..size_of::<CommandHeader>()]).copy_from_slice(command_header);
-    //     let command_data: &[u8; size_of::<I>()] = transmute_ref!(&input);
-    //     (command[size_of::<CommandHeader>()..]).copy_from_slice(command_data);
-
-    //     let mut output = [0u8; size_of::<ResponseHeader>() + size_of::<O>()];
-    //     tcg.submit_command(&command, &mut output);
-
-    //     todo!()
-    // }
-
-    // send_command::<_, ()>(&mut tcg, GetRandomCommand { bytes_requested: 1 });
+    for i in 0..24 {
+        let mut command = PcrRead::new(i);
+        let pcr_value = submit_command(&mut tcg, &mut command)
+            .unwrap()
+            .plain_hex(false);
+        log::debug!("PCR {i} = {pcr_value:x}");
+    }
 
     loop {
         boot::stall(3_000_000);
     }
-    Status::SUCCESS
+    // Status::SUCCESS
 }
