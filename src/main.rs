@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use ez_tpm::{GetRandom, PcrRead, uefi::submit_command};
+use ez_tpm::{GetCapability, GetRandom, PcrRead, uefi::submit_command};
 use hex_slice::AsHex;
 use log::info;
 use sha1::{Digest, Sha1};
@@ -120,6 +120,22 @@ fn main() -> Status {
             let pcr_value = pcr_value.plain_hex(false);
             log::debug!("PCR {i}: {pcr_value:x} - does not match event log!");
         };
+    }
+
+    let mut index = 0;
+    loop {
+        let mut command = GetCapability::new(index);
+        let output = submit_command(&mut tcg, &mut command).unwrap();
+        if let Some(handle) = output.handle() {
+            log::debug!("Handle persistent[{index}] = 0x{handle:x}");
+        } else {
+            log::debug!("no handle :(")
+        }
+        if output.more_data() {
+            index += 1
+        } else {
+            break;
+        }
     }
 
     loop {
