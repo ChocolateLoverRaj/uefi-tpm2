@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use ez_tpm::{GetCapability, GetRandom, PcrRead, uefi::submit_command};
+use ez_tpm::{CreatePrimary, GetCapability, GetRandom, PcrRead, uefi::submit_command};
 use hex_slice::AsHex;
 use log::info;
 use sha1::{Digest, Sha1};
@@ -72,8 +72,8 @@ fn main() -> Status {
                 log::debug!("UEFI image loaded. sha1: {sha1:x}");
             }
             EventType::EFI_ACTION => {
-                let action = str::from_utf8(event.event_data()).unwrap();
-                log::debug!("UEFI action: {action:?}");
+                // let action = str::from_utf8(event.event_data()).unwrap();
+                // log::debug!("UEFI action: {action:?}");
             }
             event_type => {
                 log::debug!("Unknown({event_type:?}) {pcr_index:?}");
@@ -122,21 +122,8 @@ fn main() -> Status {
         };
     }
 
-    let mut index = 0;
-    loop {
-        let mut command = GetCapability::new(index);
-        let output = submit_command(&mut tcg, &mut command).unwrap();
-        if let Some(handle) = output.handle() {
-            log::debug!("Handle persistent[{index}] = 0x{handle:x}");
-        } else {
-            log::debug!("no handle :(")
-        }
-        if output.more_data() {
-            index += 1
-        } else {
-            break;
-        }
-    }
+    let mut command = CreatePrimary::new();
+    submit_command(&mut tcg, &mut command).unwrap();
 
     loop {
         boot::stall(3_000_000);
