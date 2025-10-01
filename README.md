@@ -23,6 +23,10 @@ Build, copy, and run the app:
 ```bash
 cargo build --target x86_64-unknown-uefi && cp target/x86_64-unknown-uefi/debug/uefi-tpm2.efi esp/efi/boot/bootx64.efi && qemu-system-x86_64 -enable-kvm     -drive if=pflash,format=raw,readonly=on,file=$OVMF_PATH/OVMF_CODE.fd     -drive if=pflash,format=raw,readonly=on,file=$OVMF_PATH/OVMF_VARS.fd     -drive format=raw,file=fat:rw:esp -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 --nographic
 ```
+Or in Ubuntu in WSL2 
+```bash
+cargo build --target x86_64-unknown-uefi && cp target/x86_64-unknown-uefi/debug/uefi-tpm2.efi esp/efi/boot/bootx64.efi && qemu-system-x86_64 -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd     -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_VARS_4M.fd     -drive format=raw,file=fat:rw:esp -chardev socket,id=chrtpm,path=/tmp/mytpm1/swtpm-sock -tpmdev emulator,id=tpm0,chardev=chrtpm -device tpm-tis,tpmdev=tpm0 --nographic
+```
 
 ## Specifications to reference
 - [QEMU docs on emulating TPM](https://qemu-project.gitlab.io/qemu/specs/tpm.html#the-qemu-tpm-emulator-device)

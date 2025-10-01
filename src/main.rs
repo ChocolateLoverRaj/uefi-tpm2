@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use ez_tpm::{CreatePrimary, GetCapability, GetRandom, PcrRead, uefi::submit_command};
+use ez_tpm::{CreatePrimary, GetRandom, PcrRead, uefi::submit_command};
 use hex_slice::AsHex;
 use log::info;
 use sha1::{Digest, Sha1};
